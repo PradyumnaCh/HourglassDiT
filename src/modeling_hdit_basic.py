@@ -54,19 +54,21 @@ class AdaRMSNorm(nn.Module):
             A small value to prevent division by zero
     """
 
-    def __init__(self, dim, bias=False, eps=1e-8):
+    def __init__(self, cond_dim, dim, bias=False, eps=1e-8):
         super().__init__()
         self.dim = dim
         self.eps = eps
         self.bias = bias
 
+        self.proj = nn.Linear(cond_dim, dim)
+
         if bias:
             self.register_parameter("bias", nn.Parameter(torch.zeros(dim)))
 
-    def forward(self, x, scale) -> torch.Tensor:
+    def forward(self, x, cond) -> torch.Tensor:
         norm = x.norm(2, dim=-1, keepdim=True) / (self.dim**0.5)
         x = x / (norm + self.eps)
-        x = x * scale
+        x = x * self.proj(cond)
         if self.bias:
             x = x + self.bias
         return x
@@ -120,23 +122,114 @@ class CosineSimilarityAttention(nn.Module):
         return out
 
 
-class GlobalHDITBlock(nn.Module):
-    def __init__(self, dim, L=256, heads=8, dim_head=64, dropout=0.0, eps=1e-8):
+class HDiTBlock(nn.Module):
+    def __init__(
+        self,
+        dim,
+        cond_dim,
+        hidden_dim,
+        L=256,
+        heads=8,
+        dim_head=64,
+        dropout=0.0,
+        eps=1e-8,
+    ):
         super().__init__()
-        self.norm0 = AdaRMSNorm(dim)
-        self.norm1 = AdaRMSNorm(dim)
-        self.attn = CosineSimilarityAttention(dim, L, heads, dim_head, dropout, eps)
-        self.condition_mlp = nn.Linear(dim, 2 * dim)
-        self.ffn = HDITFFNBlock(dim)
+        self.norm0 = AdaRMSNorm(cond_dim, dim)
+        self.norm1 = AdaRMSNorm(cond_dim, dim)
+        self.ffn = HDiTFFNBlock(dim, hidden_dim, dropout)
+        self.attn = None  # to be defined in subclasses
 
-    def forward(self, x, condition):
-        gamma1, gamma2 = self.condition_mlp(condition).chunk(2, dim=-1)
+    def forward(self, x, cond):
         input_tokens = x
-        x = self.norm0(x, gamma1)
+        x = self.norm0(x, cond)
         x = self.attn(x)
         input_tokens = input_tokens + x
 
-        x = self.norm1(x, gamma2)
+        x = self.norm1(x, cond)
         x = self.ffn(x)
         x = x + input_tokens
+        return x
+
+
+class GlobalHDiTBlock(HDiTBlock):
+    def __init__(
+        self,
+        dim,
+        cond_dim,
+        hidden_dim,
+        L=256,
+        heads=8,
+        dim_head=64,
+        dropout=0.0,
+        eps=1e-8,
+    ):
+        super().__init__(dim, cond_dim, hidden_dim, L, heads, dim_head, dropout, eps)
+        self.attn = CosineSimilarityAttention(dim, L, heads, dim_head, dropout, eps)
+
+
+class LocalHDiTBlock(HDiTBlock):
+    def __init__(
+        self,
+        dim,
+        cond_dim,
+        hidden_dim,
+        L=256,
+        heads=8,
+        dim_head=64,
+        dropout=0.0,
+        eps=1e-8,
+    ):
+        super().__init__(dim, cond_dim, hidden_dim, L, heads, dim_head, dropout, eps)
+        self.attn = CosineSimilarityAttention(dim, L, heads, dim_head, dropout, eps)
+
+
+class Lerp(nn.Module):
+    """Linear interpolation module"""
+
+    def __init__(self, alpha=0.5):
+        super().__init__()
+        self.alpha = nn.Parameter(torch.tensor(alpha))
+
+    def forward(self, x, y):
+        return x + self.alpha * (y - x)
+
+
+class RoPE1d(nn.Module):
+    """Rotary Positional Encoding for 1D data"""
+
+    def __init__(self, dim):
+        super().__init__()
+
+    def forward(self, x):
+        raise NotImplementedError
+
+
+class RoPE2d(nn.Module):
+    """Rotary Positional Encoding for 2D data"""
+
+    def __init__(self, dim):
+        super().__init__()
+
+    def forward(self, x):
+        raise NotImplementedError
+
+
+class HDiTFFNBlock(nn.Module):
+    def __init__(self, dim, hidden_dim, dropout=0.0):
+        super().__init__()
+        self.branch1 = nn.Sequential(
+            nn.Linear(dim, hidden_dim),
+            nn.GELU(),
+        )
+        self.branch2 = nn.Linear(dim, hidden_dim)
+        self.dropout = nn.Dropout(dropout)
+        self.proj = nn.Linear(hidden_dim, dim)
+
+    def forward(self, x):
+        skip = x
+        x = self.branch1(x) * self.branch2(x)
+        x = self.dropout(x)
+        x = self.proj(x)
+        x = x + skip
         return x
