@@ -1,6 +1,6 @@
 import torch.nn as nn
 
-from src.modeling_hdit_basic import GlobalHDiTBlock, LocalHDiTBlock, Lerp
+from src.modeling_hdit_basic import GlobalHDiTBlock, Lerp, LocalHDiTBlock
 
 
 class HDiT(nn.Module):
@@ -8,39 +8,34 @@ class HDiT(nn.Module):
 
     def __init__(
         self,
-        dim,
-        num_levels,
-        num_heads=8,
-        window_size=256,
-        dropout=0.0,
-        attn_dropout=0.0,
+        config,
     ):
         super().__init__()
 
-        # TODO(schermala3): initialize StableDiffusion auto-encoder from HF in the pipeline
-
-        self.num_levels = num_levels
+        self.levels = config.levels
+        self.depths = config.depths
 
         self.down_blocks = nn.ModuleList()
-        for _ in range(num_levels - 1):
-            self.down_blocks.append(
-                LocalHDiTBlock(dim, num_heads, window_size, dropout, attn_dropout)
-            )
-        self.token_merge = nn.PixelShuffle(2)
+        for i in range(self.levels[0]):
+            for _ in range(self.depths[i]):
+                self.down_blocks.append(LocalHDiTBlock(config, level_num=i))
+            self.token_merge = nn.PixelShuffle(2)
 
-        self.mid_block = GlobalHDiTBlock(
-            dim, num_heads, window_size, dropout, attn_dropout
-        )
+        self.mid_block = nn.ModuleList()
+        for i in range(self.levels[1]):
+            for j in range(self.depths[i]):
+                self.mid_block.append(
+                    GlobalHDiTBlock(config=config, level_num=i)
+                )
 
         self.up_blocks = nn.ModuleList()
-        for _ in range(num_levels - 1):
-            self.up_blocks.append(
-                LocalHDiTBlock(dim, num_heads, window_size, dropout, attn_dropout)
-            )
-        self.token_split = nn.PixelUnshuffle(2)
+        for i in reversed(range(self.levels[0])):
+            for _ in range(self.depths[i]):
+                self.down_blocks.append(LocalHDiTBlock(config, level_num=i))
+            self.token_split = nn.PixelUnshuffle(2)
 
         self.interpolators = nn.ModuleList()
-        for _ in range(num_levels - 1):
+        for _ in range(self.levels[0] - 1):
             self.interpolators.append(Lerp())
 
     def forward(self, x, condition):
@@ -60,5 +55,4 @@ class HDiT(nn.Module):
         ):
             x = up_block(x, condition)
             x = interp(self.token_split(x), down_x)
-
         return x

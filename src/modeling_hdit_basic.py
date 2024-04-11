@@ -11,6 +11,9 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from transformers.models.nat.modeling_nat import NeighborhoodAttention
+
+from src.configuration_hdit import HDiTConfig
 
 
 class RMSNorm(nn.Module):
@@ -82,7 +85,9 @@ class CosineSimilarityAttention(nn.Module):
 
     """
 
-    def __init__(self, dim, L=256, heads=8, dim_head=64, dropout=0.0, eps=1e-8):
+    def __init__(
+        self, dim, L=256, heads=8, dim_head=64, dropout=0.0, eps=1e-8
+    ):
         super().__init__()
         inner_dim = dim_head * heads
         self.dim = dim
@@ -90,7 +95,10 @@ class CosineSimilarityAttention(nn.Module):
         self.dim_head = dim_head
         self.eps = eps
         self.register_buffer(
-            "scale", nn.Parameter(torch.ones(heads) * torch.log2(L**2 - L))
+            "scale",
+            nn.Parameter(
+                torch.ones(heads) * torch.log2(L**2 - L),
+            ),
         )
 
         self.dropout = nn.Dropout(dropout)
@@ -100,7 +108,9 @@ class CosineSimilarityAttention(nn.Module):
     def forward(self, x):
         b, n, d, h = *x.shape, self.heads
         q, k, v = self.to_qkv(x).chunk(3, dim=-1)
-        q, k, v = map(lambda t: t.reshape(b, n, h, -1).transpose(1, 2), (q, k, v))
+        q, k, v = map(
+            lambda t: t.reshape(b, n, h, -1).transpose(1, 2), (q, k, v)
+        )
 
         # normalize q, k along heads dimension for cosine similarity
         q = q * torch.rsqrt(q.norm(2, dim=1, keepdim=True) + self.eps)
@@ -125,19 +135,22 @@ class CosineSimilarityAttention(nn.Module):
 class HDiTBlock(nn.Module):
     def __init__(
         self,
-        dim,
-        cond_dim,
-        hidden_dim,
-        L=256,
-        heads=8,
-        dim_head=64,
-        dropout=0.0,
-        eps=1e-8,
+        config,
+        level_num,
     ):
+        # TODO Assign the correct values for these dimensions
+        dim = config.widths[level_num]
+        cond_dim = config.cond_dim
         super().__init__()
         self.norm0 = AdaRMSNorm(cond_dim, dim)
         self.norm1 = AdaRMSNorm(cond_dim, dim)
-        self.ffn = HDiTFFNBlock(dim, hidden_dim, dropout)
+
+        input_dim = config.widths[level_num]
+        self.ffn = HDiTFFNBlock(
+            dim=input_dim,
+            hidden_dim=config.mlp_dim,
+            dropout=config.hidden_dropout_prob,
+        )
         self.attn = None  # to be defined in subclasses
 
     def forward(self, x, cond):
@@ -155,33 +168,40 @@ class HDiTBlock(nn.Module):
 class GlobalHDiTBlock(HDiTBlock):
     def __init__(
         self,
-        dim,
-        cond_dim,
-        hidden_dim,
-        L=256,
-        heads=8,
-        dim_head=64,
-        dropout=0.0,
-        eps=1e-8,
+        config: HDiTConfig,
+        level_num=0,
+        L=torch.Tensor(265),
     ):
-        super().__init__(dim, cond_dim, hidden_dim, L, heads, dim_head, dropout, eps)
-        self.attn = CosineSimilarityAttention(dim, L, heads, dim_head, dropout, eps)
+        super().__init__(config, level_num)
+        # self.attn = CosineSimilarityAttention(
+        #     dim=config.widths[level_num],
+        #     L=L,
+        #     heads=config.num_heads[level_num],
+        #     dim_head=config.attn_head_dim,
+        #     dropout=config.attention_probs_dropout_prob,
+        #     eps=config.layer_norm_eps,
+        # )
+        self.attn = NeighborhoodAttention(
+            config=config,
+            dim=config.widths[level_num],
+            num_heads=config.num_heads[level_num],
+            kernel_size=config.kernel_size,
+        )
 
 
 class LocalHDiTBlock(HDiTBlock):
     def __init__(
         self,
-        dim,
-        cond_dim,
-        hidden_dim,
-        L=256,
-        heads=8,
-        dim_head=64,
-        dropout=0.0,
-        eps=1e-8,
+        config,
+        level_num=0,
     ):
-        super().__init__(dim, cond_dim, hidden_dim, L, heads, dim_head, dropout, eps)
-        self.attn = CosineSimilarityAttention(dim, L, heads, dim_head, dropout, eps)
+        super().__init__(config, level_num)
+        self.attn = NeighborhoodAttention(
+            config=config,
+            dim=config.widths[level_num],
+            num_heads=config.num_heads[level_num],
+            kernel_size=config.kernel_size,
+        )
 
 
 class Lerp(nn.Module):
