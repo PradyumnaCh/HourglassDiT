@@ -12,6 +12,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+import math
+
 
 class RMSNorm(nn.Module):
     r"""Root Mean Square Normalization Layer
@@ -195,24 +197,56 @@ class Lerp(nn.Module):
         return x + self.alpha * (y - x)
 
 
-class RoPE1d(nn.Module):
-    """Rotary Positional Encoding for 1D data"""
+class AxialRoPE(nn.Module):
+    """Axial Rotary Positional Encoding for 2D data"""
 
-    def __init__(self, dim):
+    def __init__(self, dim, n_heads):
         super().__init__()
 
-    def forward(self, x):
-        raise NotImplementedError
+        self.dim = dim
+        self.n_heads = n_heads
+        self.register_buffer("frequencies", self._create_frequencies())
 
-
-class RoPE2d(nn.Module):
-    """Rotary Positional Encoding for 2D data"""
-
-    def __init__(self, dim):
-        super().__init__()
+        self._cached_cos = None
+        self._cached_sin = None
+        self._cached_resolution = None
 
     def forward(self, x):
-        raise NotImplementedError
+        if self._cached_resolution is None or self._cached_resolution != x.shape[-3:-1]:
+            self._cached_cos, self._cached_sin = self._create_positional_embeddings(
+                x.shape[-3:-1]
+            )
+            self._cached_resolution = x.shape[-3:-1]
+
+        cos, sin = self._cached_cos, self._cached_sin
+
+        x1, x2 = torch.chunk(x, 2, dim=-1)
+        x = torch.cat((x1 * cos - x2 * sin, x2 * cos + x1 * sin), dim=-1)
+        return x
+
+    def _create_frequencies(self):
+        freqs = torch.logspace(
+            torch.log(math.pi),
+            torch.log(10.0 * math.pi),
+            self.n_heads * self.dim // 4 + 1,
+            base=math.e,
+        )[:-1]
+        return freqs.view(self.dim // 4, self.n_heads).T.contiguous()
+
+    def _create_positional_embeddings(self, resolution=(256, 256)):
+        if resolution[0] != resolution[1]:
+            raise ValueError("Only square images are supported")
+        positions = torch.linspace(-1, 1, resolution[0])
+        positions_grid = torch.stack(
+            torch.meshgrid(positions, positions, indexing="ij"), dim=-1
+        )
+        positions = positions_grid.flatten(0, 1)
+
+        theta_h = positions[..., None, 0:1] * self.frequencies
+        theta_w = positions[..., None, 1:2] * self.frequencies
+        # [n, nh, d*2] -> [n, d*2, nh] if using movedim
+        thetas = torch.cat((theta_h, theta_w), dim=-1)  # .movedim(-2, -3) ?
+        return thetas.cos(), thetas.sin()
 
 
 class HDiTFFNBlock(nn.Module):
