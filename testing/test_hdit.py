@@ -12,22 +12,19 @@ from src.modeling_hdit_transformer import HDiT
 
 
 class TestHDiT(unittest.TestCase):
-    def test_initialization(self):
+    def setUp(self):
         # Setup operations
         self.HDiTConfig = HDiTConfig()
         self.model = HDiT(self.HDiTConfig)
 
     def test_forward(self):
-        # Setup operations
-        self.HDiTConfig = HDiTConfig()
-        self.model = HDiT(self.HDiTConfig)
-
-        input_tensor = torch.randn(1, 10, 10, 384)
+        input_tensor = torch.randn(1, 100, 100, 384)
         cond_tensor = torch.randn(1, 768)
         # Forward pass
         output = self.model(input_tensor, cond_tensor)
+        print(output.shape)
         self.assertIsInstance(output, torch.Tensor)
-        self.assertEqual(output.shape, (1, 3, 224, 224))
+        self.assertEqual(output.shape, (1, 100, 100, 384))
 
 
 # This is the typical way of running the tests if this script is run directly

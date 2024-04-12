@@ -107,7 +107,7 @@ class HDiTConfig(BackboneConfigMixin, PretrainedConfig):
         cond_dim=768,
         levels=[1, 1],
         depths=[2, 11],
-        widths=[384, 764],
+        widths=[384, 768],
         num_heads=[6, 12],
         attn_head_dim=64,
         kernel_size=7,

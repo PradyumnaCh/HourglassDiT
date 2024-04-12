@@ -138,6 +138,54 @@ class HDiTBlock(nn.Module):
         config,
         level_num,
     ):
+        super().__init__()
+
+    def forward(self, x, cond):
+        for layer in self.layers:
+            x = layer(x, cond)
+        return x
+
+
+class GlobalHDiTBlock(HDiTBlock):
+    def __init__(
+        self,
+        config,
+        level_num,
+    ):
+        super().__init__(config=config, level_num=level_num)
+        self.layers = []
+        for _ in range(config.depths[level_num]):
+            self.layers.append(
+                GlobalHDiTLayer(
+                    config=config,
+                    level_num=level_num,
+                )
+            )
+
+
+class LocalHDiTBlock(HDiTBlock):
+    def __init__(
+        self,
+        config,
+        level_num,
+    ):
+        super().__init__(config=config, level_num=level_num)
+        self.layers = []
+        for _ in range(config.depths[level_num]):
+            self.layers.append(
+                LocalHDiTLayer(
+                    config=config,
+                    level_num=level_num,
+                )
+            )
+
+
+class HDiTLayer(nn.Module):
+    def __init__(
+        self,
+        config,
+        level_num,
+    ):
         # TODO Assign the correct values for these dimensions
         dim = config.widths[level_num]
         cond_dim = config.cond_dim
@@ -157,6 +205,7 @@ class HDiTBlock(nn.Module):
         input_tokens = x
         x = self.norm0(x, cond)
         x = self.attn(x)
+        x = x[0]
         input_tokens = input_tokens + x
 
         x = self.norm1(x, cond)
@@ -165,7 +214,7 @@ class HDiTBlock(nn.Module):
         return x
 
 
-class GlobalHDiTBlock(HDiTBlock):
+class GlobalHDiTLayer(HDiTLayer):
     def __init__(
         self,
         config: HDiTConfig,
@@ -189,7 +238,7 @@ class GlobalHDiTBlock(HDiTBlock):
         )
 
 
-class LocalHDiTBlock(HDiTBlock):
+class LocalHDiTLayer(HDiTLayer):
     def __init__(
         self,
         config,
@@ -198,7 +247,7 @@ class LocalHDiTBlock(HDiTBlock):
         super().__init__(config, level_num)
         self.attn = NeighborhoodAttention(
             config=config,
-            dim=config.widths[level_num],
+            dim=(config.widths[level_num]),
             num_heads=config.num_heads[level_num],
             kernel_size=config.kernel_size,
         )
@@ -252,4 +301,32 @@ class HDiTFFNBlock(nn.Module):
         x = self.dropout(x)
         x = self.proj(x)
         x = x + skip
+        return x
+
+
+class TokenSplit(nn.Module):
+    def __init__(self, in_feat, out_feat, scale=2):
+        super().__init__()
+        self.linear = nn.Linear(in_feat // (scale * scale), out_feat)
+        self.shuffle = nn.PixelShuffle(scale)
+
+    def forward(self, x):
+        x = x.permute(0, 3, 1, 2)
+        x = self.shuffle(x)
+        x = x.permute(0, 2, 3, 1)
+        x = self.linear(x)
+        return x
+
+
+class TokenMerge(nn.Module):
+    def __init__(self, in_feat, out_feat, scale=2):
+        super().__init__()
+        self.linear = nn.Linear(in_feat * scale * scale, out_feat)
+        self.unshuffle = nn.PixelUnshuffle(scale)
+
+    def forward(self, x):
+        x = x.permute(0, 3, 1, 2)
+        x = self.unshuffle(x)
+        x = x.permute(0, 2, 3, 1)
+        x = self.linear(x)
         return x
