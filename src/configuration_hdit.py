@@ -22,26 +22,6 @@ class HDiTConfig(BackboneConfigMixin, PretrainedConfig):
 
     Args:
 
-    self,
-        input_size = 128,
-        patch_size= 4,
-        num_channels=3,
-        embed_dim=64,
-        levels = [1,1],
-        depths=[2,11],
-        widths = [384,764],
-        num_heads=[6,12],
-        attn_head_dim = 64,
-        kernel_size=7,
-        mlp_depth = 2,
-        mlp_dim = 768,
-        qkv_bias=True,
-        hidden_dropout_prob=0.0,
-        attention_probs_dropout_prob=0.0,
-        hidden_act="gelu",
-        layer_norm_eps=1e-5,
-        **kwargs,
-
         input_size (`int`, *optional*, defaults to 128):
         `int`: The size of the input image.
 
@@ -103,7 +83,7 @@ class HDiTConfig(BackboneConfigMixin, PretrainedConfig):
         input_size=128,
         patch_size=4,
         num_channels=3,
-        embed_dim=64,
+        num_classes=1000,
         cond_dim=768,
         levels=[1, 1],
         depths=[2, 11],
@@ -111,8 +91,8 @@ class HDiTConfig(BackboneConfigMixin, PretrainedConfig):
         num_heads=[6, 12],
         attn_head_dim=64,
         kernel_size=7,
-        mlp_depth=2,
-        mlp_dim=768,
+        mapping_depth=2,
+        mapping_dim=768,
         qkv_bias=True,
         hidden_dropout_prob=0.0,
         attention_probs_dropout_prob=0.0,
@@ -124,7 +104,7 @@ class HDiTConfig(BackboneConfigMixin, PretrainedConfig):
         self.input_size = input_size
         self.patch_size = patch_size
         self.num_channels = num_channels
-        self.embed_dim = embed_dim
+        self.num_classes = num_classes
         self.cond_dim = cond_dim
         self.levels = levels
         self.depths = depths
@@ -133,8 +113,8 @@ class HDiTConfig(BackboneConfigMixin, PretrainedConfig):
         self.num_heads = num_heads
         self.attn_head_dim = attn_head_dim
         self.kernel_size = kernel_size
-        self.mlp_depth = mlp_depth
-        self.mlp_dim = mlp_dim
+        self.mapping_depth = mapping_depth
+        self.mapping_dim = mapping_dim
         self.qkv_bias = qkv_bias
         self.hidden_dropout_prob = hidden_dropout_prob
         self.attention_probs_dropout_prob = attention_probs_dropout_prob

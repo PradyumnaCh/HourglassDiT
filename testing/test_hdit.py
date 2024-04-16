@@ -18,13 +18,18 @@ class TestHDiT(unittest.TestCase):
         self.model = HDiT(self.HDiTConfig)
 
     def test_forward(self):
-        input_tensor = torch.randn(1, 100, 100, 384)
-        cond_tensor = torch.randn(1, 768)
+        input_tensor = torch.randn(
+            1,
+            3,
+            256,
+            256,
+        )
+        timesteps = torch.randn(1, 768)
+        cond_tensor = torch.randint(0, 1000, (1,))
         # Forward pass
-        output = self.model(input_tensor, cond_tensor)
-        print(output.shape)
+        output = self.model(input_tensor, timesteps, cond_tensor)
         self.assertIsInstance(output, torch.Tensor)
-        self.assertEqual(output.shape, (1, 100, 100, 384))
+        self.assertEqual(output.shape, (1, 3, 256, 256))
 
 
 # This is the typical way of running the tests if this script is run directly

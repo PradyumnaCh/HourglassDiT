@@ -18,12 +18,21 @@ class HDiT(nn.Module):
     ):
         super().__init__()
 
-        # TODO: Should this even be here?
-        self.patchify = nn.Conv2d(
+        self.config = config
+        self.patch_emb = nn.Conv2d(
             in_channels=config.num_channels,
-            out_channels=config.embed_dim,
+            out_channels=config.widths[0],
             kernel_size=config.patch_size,
             stride=config.patch_size,
+        )
+
+        self.mapping_network = nn.Sequential(
+            *[
+                nn.Embedding(
+                    num_embeddings=config.num_classes,
+                    embedding_dim=config.cond_dim,
+                )
+            ]
         )
 
         self.levels = config.levels
@@ -71,20 +80,39 @@ class HDiT(nn.Module):
         for _ in range(self.levels[0]):
             self.interpolators.append(Lerp())
 
-    def forward(self, x, condition):
+        self.depatchify = TokenSplit(
+            config.widths[0], config.num_channels, scale=config.patch_size
+        )
 
-        x = self.embedding(x)
+    def patchify(self, x):
+        return self.patch_emb(x)
 
+    def forward(self, x, timesteps, class_labels):
+        """
+        Args:
+        x : torch.Tensor of shape [N,C,H,W]
+        timesteps: torch.Tensor of shape [N]
+        labels: torch.Tensor of shape [N]
+
+        Returns:
+        out : torch.Tensor of shape [N,C,H,W]
+        """
+        x = self.patchify(x)
+
+        # TODO: Implement proper conditioning using both conditioning labels and timesteps
+        class_labels = self.mapping_network(class_labels)
+
+        x = x.permute(0, 2, 3, 1)
         down_pass = []
         for down_block, token_merge in zip(
             self.down_blocks, self.token_merges
         ):
-            x = down_block(x, condition)
+            x = down_block(x, class_labels)
             down_pass.append(x)
             x = token_merge(x)
 
         for mid_block in self.mid_blocks:
-            x = mid_block(x, condition)
+            x = mid_block(x, class_labels)
 
         for up_block, token_split, interp, down_x in zip(
             self.up_blocks,
@@ -93,5 +121,9 @@ class HDiT(nn.Module):
             down_pass[::-1],
         ):
             x = interp(token_split(x), down_x)
-            x = up_block(x, condition)
+            x = up_block(x, class_labels)
+
+        x = self.depatchify(x)
+        x = x.permute(0, 3, 1, 2)
+
         return x

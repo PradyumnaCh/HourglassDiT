@@ -196,7 +196,7 @@ class HDiTLayer(nn.Module):
         input_dim = config.widths[level_num]
         self.ffn = HDiTFFNBlock(
             dim=input_dim,
-            hidden_dim=config.mlp_dim,
+            hidden_dim=input_dim*3,
             dropout=config.hidden_dropout_prob,
         )
         self.attn = None  # to be defined in subclasses
